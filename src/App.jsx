@@ -7,13 +7,10 @@ import {
 } from 'firebase/firestore';
 import { 
   Users, Calendar, Clock, ShieldCheck, LogOut, PlusCircle, 
-  DollarSign, Download, CheckCircle2, AlertCircle, Crown, 
-  UserPlus, UserMinus, Lock, Trash2, History, Smartphone, 
-  Save, UserCircle, Users2, Unlock 
+  CheckCircle2, AlertCircle, UserCircle, Users2, Lock 
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
-// MANTENHA AS SUAS CHAVES REAIS AQUI
 const firebaseConfig = {
   apiKey: "AIzaSyAQXrADQKC7ZI2EPYsBl2cKz-hFJkPVOEA",
   authDomain: "voley-app-c3ee1.firebaseapp.com",
@@ -41,7 +38,17 @@ export default function App() {
   
   const listRef = useRef(null);
 
+  // Autenticação Inicial
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        console.error("Erro Auth:", err);
+      }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) fetchUserData(u.uid);
@@ -50,6 +57,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Escuta em tempo real do Banco de Dados
   useEffect(() => {
     if (!user || !db) return;
     const unsub19 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'games', '19h'), (d) => {
@@ -69,27 +77,31 @@ export default function App() {
     if (userDoc.exists()) {
       setUserData(userDoc.data());
       setView('dashboard');
-    } else setView('signup');
+    } else {
+      setView('login');
+    }
     setLoading(false);
   };
 
   // --- LÓGICA DE ACESSO ---
-  const canJoin = (court) => {
+  const checkAccess = (court) => {
     const game = court === '19h' ? gameData19 : gameData21;
-    if (userData?.isMaster || userData?.isAdmin) return true;
-    if (game.status === 'closed') return false;
+    if (userData?.isMaster || userData?.isAdmin) return { canJoin: true, status: game.status };
+    
+    if (game.status === 'closed') return { canJoin: false, status: 'closed' };
     if (game.status === 'monthly') {
-        return court === '19h' ? userData?.isMonthly19 : userData?.isMonthly21;
+        const isMonthly = court === '19h' ? userData?.isMonthly19 : userData?.isMonthly21;
+        return { canJoin: !!isMonthly, status: 'monthly' };
     }
-    return true; // Status 'open' (avulsos)
+    return { canJoin: true, status: 'open' };
   };
 
   const handleJoinGame = async (court, targetUser = null) => {
     const playerToAdd = targetUser || userData;
-    const game = court === '19h' ? gameData19 : gameData21;
+    const access = checkAccess(court);
 
-    if (!canJoin(court)) {
-        return showMessage("Lista fechada ou restrita para este horário.", "error");
+    if (!access.canJoin) {
+        return showMessage("Você não tem permissão para entrar nesta lista agora.", "error");
     }
 
     try {
@@ -99,7 +111,7 @@ export default function App() {
         let players = gameDoc.exists() ? gameDoc.data().players : [];
 
         if (players.length >= 24) throw new Error("Lista cheia!");
-        if (players.some(p => p.uid === playerToAdd.id || p.uid === (playerToAdd.uid || playerToAdd.id))) {
+        if (players.some(p => p.uid === (playerToAdd.id || playerToAdd.uid))) {
             throw new Error(`${playerToAdd.username} já está na lista!`);
         }
 
@@ -110,26 +122,49 @@ export default function App() {
           time: new Date().toISOString()
         };
 
-        transaction.set(gameRef, { players: [...players, newPlayer] }, { merge: true });
+        transaction.update(gameRef, { players: [...players, newPlayer] });
       });
-      showMessage(`${playerToAdd.username} adicionado!`, "success");
+      showMessage(`${playerToAdd.username} confirmado!`, "success");
     } catch (e) { showMessage(e.message, 'error'); }
   };
 
   const setGameStatus = async (court, status) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'games', court), { status });
-    showMessage(`Lista das ${court} atualizada para: ${status}`, "info");
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'games', court), { status }, { merge: true });
+    showMessage(`Status alterado para ${status.toUpperCase()}`, "success");
+  };
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    const found = allUsers.find(u => u.username === e.target.username.value && u.password === e.target.password.value);
+    if (found) { setUserData(found); setView('dashboard'); }
+    else showMessage("Usuário ou senha incorretos", "error");
+  };
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const info = {
+      id: user.uid,
+      firstName: f.get('firstName'),
+      lastName: f.get('lastName'),
+      congregation: f.get('congregation'),
+      password: f.get('password'),
+      username: `${f.get('lastName')}.${f.get('firstName')}`,
+      isMonthly19: false,
+      isMonthly21: false,
+      isAdmin: allUsers.length === 0,
+      isMaster: allUsers.length === 0,
+      familyIds: []
+    };
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), info);
+    setUserData(info);
+    setView('dashboard');
   };
 
   const associateFamily = async (userId, familyMemberId) => {
-    if (!userData?.isAdmin && !userData?.isMaster) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userId), {
-      familyIds: arrayUnion(familyMemberId)
-    });
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', familyMemberId), {
-      familyIds: arrayUnion(userId)
-    });
-    showMessage("Vínculo familiar criado!", "success");
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', userId), { familyIds: arrayUnion(familyMemberId) });
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', familyMemberId), { familyIds: arrayUnion(userId) });
+    showMessage("Família vinculada!", "success");
   };
 
   const showMessage = (text, type) => {
@@ -152,76 +187,87 @@ export default function App() {
 
       {userData && (
         <header className="bg-indigo-800 text-white p-4 shadow-xl sticky top-0 z-50 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Calendar size={22} className="text-indigo-300" />
-            <h1 className="font-black text-xl italic uppercase tracking-tighter">VÔLEI ELITE</h1>
-          </div>
-          <button onClick={() => setView('login')} className="p-2 bg-white/10 rounded-xl"><LogOut size={20}/></button>
+          <h1 className="font-black text-xl italic uppercase tracking-tighter">VÔLEI ELITE</h1>
+          <button onClick={() => {setUserData(null); setView('login')}} className="p-2 bg-white/10 rounded-xl"><LogOut size={20}/></button>
         </header>
       )}
 
       <main className="max-w-4xl mx-auto p-4">
+        {view === 'login' && (
+          <div className="max-w-md mx-auto mt-16 bg-white p-10 rounded-[2.5rem] shadow-2xl">
+            <h2 className="text-3xl font-black text-center mb-8 uppercase italic">Login</h2>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <input name="username" placeholder="Sobrenome.Nome" className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+              <input name="password" type="password" placeholder="Senha" className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+              <button className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">ENTRAR</button>
+            </form>
+            <button onClick={() => setView('signup')} className="w-full mt-6 text-indigo-600 font-black">Criar nova conta</button>
+          </div>
+        )}
+
+        {view === 'signup' && (
+          <div className="max-w-md mx-auto mt-10 bg-white p-10 rounded-[2.5rem] shadow-2xl">
+            <h2 className="text-2xl font-black text-center mb-6 uppercase italic">Cadastro</h2>
+            <form onSubmit={handleSignup} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <input required name="firstName" placeholder="Nome" className="p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+                <input required name="lastName" placeholder="Sobrenome" className="p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+              </div>
+              <input required name="congregation" placeholder="Congregação" className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+              <input required name="password" type="password" placeholder="Senha" className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold" />
+              <button className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">FINALIZAR</button>
+            </form>
+          </div>
+        )}
+
         {view === 'dashboard' && (
           <div className="space-y-6">
-            {/* Abas e Controles de ADM */}
-            <div className="space-y-4">
-                <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-100 gap-2">
-                    <button onClick={() => setActiveTab('19h')} className={`flex-1 py-4 rounded-2xl font-black text-xs transition-all ${activeTab === '19h' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>19:00 - QUADRA 3</button>
-                    <button onClick={() => setActiveTab('21h')} className={`flex-1 py-4 rounded-2xl font-black text-xs transition-all ${activeTab === '21h' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>21:00 - QUADRA 2</button>
-                </div>
-
-                {(userData.isAdmin || userData.isMaster) && (
-                    <div className="bg-white p-4 rounded-3xl shadow-md border border-indigo-100 flex flex-wrap gap-2 justify-center">
-                        <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'closed' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-200'}`}>FECHAR LISTA</button>
-                        <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'monthly' ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-500 border-amber-200'}`}>LIBERAR MENSAL</button>
-                        <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'open' ? 'bg-green-600 text-white border-green-600' : 'text-green-600 border-green-200'}`}>LIBERAR AVULSO</button>
-                    </div>
-                )}
+            <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-100 gap-2">
+                <button onClick={() => setActiveTab('19h')} className={`flex-1 py-4 rounded-2xl font-black text-xs transition-all ${activeTab === '19h' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>19:00 - QUADRA 3</button>
+                <button onClick={() => setActiveTab('21h')} className={`flex-1 py-4 rounded-2xl font-black text-xs transition-all ${activeTab === '21h' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400'}`}>21:00 - QUADRA 2</button>
             </div>
 
-            {/* Seção de Marcação */}
+            {(userData.isAdmin || userData.isMaster) && (
+                <div className="bg-white p-4 rounded-3xl shadow-md border border-indigo-100 flex flex-wrap gap-2 justify-center">
+                    <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'closed' ? 'bg-red-600 text-white' : 'text-red-600'}`}>FECHAR</button>
+                    <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'monthly' ? 'bg-amber-500 text-white' : 'text-amber-500'}`}>MENSAL</button>
+                    <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[10px] font-black border ${currentList.status === 'open' ? 'bg-green-600 text-white' : 'text-green-600'}`}>AVULSO</button>
+                </div>
+            )}
+
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-4">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">Marcação de Nome</h3>
-                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${currentList.status === 'closed' ? 'bg-red-100 text-red-600' : currentList.status === 'monthly' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
-                        {currentList.status === 'closed' ? 'Lista Fechada' : currentList.status === 'monthly' ? 'Apenas Mensal' : 'Lista Aberta'}
+                    <h3 className="font-black text-slate-800 uppercase text-xs">Ações</h3>
+                    <div className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-slate-100">
+                        {currentList.status}
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button 
-                        onClick={() => handleJoinGame(activeTab)}
-                        className="py-4 bg-indigo-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-indigo-700 active:scale-95 transition-all shadow-lg shadow-indigo-100"
-                    >
+                    <button onClick={() => handleJoinGame(activeTab)} className="py-4 bg-indigo-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg">
                         <PlusCircle size={18}/> MEU NOME
                     </button>
-
                     {familyMembers.map(member => (
-                        <button 
-                            key={member.id}
-                            onClick={() => handleJoinGame(activeTab, member)}
-                            className="py-4 bg-slate-100 text-slate-700 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-slate-200 active:scale-95 transition-all"
-                        >
+                        <button key={member.id} onClick={() => handleJoinGame(activeTab, member)} className="py-4 bg-slate-100 text-slate-700 rounded-2xl font-black flex items-center justify-center gap-2">
                             <Users2 size={18}/> + {member.username}
                         </button>
                     ))}
                 </div>
             </div>
 
-            {/* Visualização da Lista */}
-            <div ref={listRef} className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden">
-                <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                    <h2 className="text-2xl font-black text-indigo-900 uppercase">Lista das {activeTab}</h2>
-                    <p className="font-black text-indigo-600 text-xl">{currentList.players?.length || 0}/24</p>
+            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden">
+                <div className="p-8 border-b flex justify-between items-center">
+                    <h2 className="text-xl font-black text-indigo-900 uppercase">Lista {activeTab}</h2>
+                    <p className="font-black text-indigo-600">{currentList.players?.length || 0}/24</p>
                 </div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/30">
                     {[...Array(24)].map((_, i) => {
                         const p = currentList.players?.[i];
                         return (
-                            <div key={i} className={`flex items-center justify-between p-4 rounded-2xl border ${p ? 'bg-white border-indigo-100 shadow-sm' : 'bg-slate-50 border-dashed border-slate-200'}`}>
-                                <div className="flex items-center gap-4 truncate">
-                                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black ${p ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>{i+1}</span>
-                                    <p className={`font-black text-sm uppercase ${p ? 'text-slate-800' : 'text-slate-300'}`}>{p ? p.name : 'Disponível'}</p>
+                            <div key={i} className={`flex items-center justify-between p-4 rounded-2xl border ${p ? 'bg-white border-indigo-100' : 'bg-slate-50 border-dashed'}`}>
+                                <div className="flex items-center gap-4">
+                                    <span className="text-[10px] font-black opacity-30">{i+1}</span>
+                                    <p className="font-black text-sm uppercase">{p ? p.name : 'Vaga Livre'}</p>
                                 </div>
                             </div>
                         );
@@ -231,42 +277,35 @@ export default function App() {
           </div>
         )}
 
-        {view === 'admin' && (userData.isAdmin || userData.isMaster) && (
+        {view === 'admin' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-black uppercase italic text-slate-800">Gestão de Membros</h2>
+            <h2 className="text-2xl font-black uppercase italic">Membros</h2>
             <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden">
                 {allUsers.map(u => (
-                    <div key={u.id} className="p-5 border-b border-slate-50 flex flex-col gap-4">
+                    <div key={u.id} className="p-5 border-b flex flex-col gap-4">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <UserCircle className={u.isAdmin ? "text-indigo-600" : "text-slate-400"} />
-                                <span className="font-black text-sm uppercase">{u.username}</span>
-                            </div>
-                            <div className="flex gap-1">
-                                <button onClick={() => associateFamily(userData.id, u.id)} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase">Vincular a Mim</button>
-                            </div>
+                            <span className="font-black text-sm uppercase">{u.username}</span>
+                            <button onClick={() => associateFamily(userData.id, u.id)} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg uppercase">Vincular Família</button>
                         </div>
                         <div className="flex gap-2">
-                             <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.id), { isMonthly19: !u.isMonthly19 })} className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase border ${u.isMonthly19 ? 'bg-green-600 text-white' : 'text-slate-400'}`}>MENSAL 19h</button>
-                             <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.id), { isMonthly21: !u.isMonthly21 })} className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase border ${u.isMonthly21 ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>MENSAL 21h</button>
+                             <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.id), { isMonthly19: !u.isMonthly19 })} className={`flex-1 py-2 rounded-lg text-[9px] font-black border ${u.isMonthly19 ? 'bg-green-600 text-white' : 'text-slate-400'}`}>MENSAL 19H</button>
+                             <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.id), { isMonthly21: !u.isMonthly21 })} className={`flex-1 py-2 rounded-lg text-[9px] font-black border ${u.isMonthly21 ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>MENSAL 21H</button>
                         </div>
                     </div>
                 ))}
             </div>
           </div>
         )}
-
-        {/* Signup e Login mantidos conforme versões anteriores... */}
       </main>
 
       {userData && (
-        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-2xl border border-white p-2 rounded-[2.5rem] shadow-2xl z-[60] w-[92%] max-w-sm flex gap-2">
-          <button onClick={() => setView('dashboard')} className={`flex-1 flex flex-col items-center py-4 rounded-3xl ${view === 'dashboard' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-400'}`}>
-            <Calendar size={22} /><span className="text-[9px] font-black uppercase mt-1">Jogo</span>
+        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-2xl border p-2 rounded-[2.5rem] shadow-2xl z-[60] w-[90%] max-w-sm flex gap-2">
+          <button onClick={() => setView('dashboard')} className={`flex-1 flex flex-col items-center py-4 rounded-3xl ${view === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+            <Calendar size={20} /><span className="text-[8px] font-black mt-1">JOGO</span>
           </button>
           {(userData.isAdmin || userData.isMaster) && (
-            <button onClick={() => setView('admin')} className={`flex-1 flex flex-col items-center py-4 rounded-3xl ${view === 'admin' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-400'}`}>
-              <Users size={22} /><span className="text-[9px] font-black uppercase mt-1 tracking-widest">Sócios</span>
+            <button onClick={() => setView('admin')} className={`flex-1 flex flex-col items-center py-4 rounded-3xl ${view === 'admin' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
+              <Users size={20} /><span className="text-[8px] font-black mt-1">SÓCIOS</span>
             </button>
           )}
         </nav>
