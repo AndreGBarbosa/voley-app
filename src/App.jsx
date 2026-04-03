@@ -8,7 +8,7 @@ import {
 import { 
   Users, Calendar, Clock, ShieldCheck, LogOut, PlusCircle, 
   CheckCircle2, AlertCircle, UserCircle, Users2, Lock, Unlock, 
-  Trash2, XCircle, Save, CheckSquare, Square, DollarSign, TrendingUp, Wallet
+  Trash2, XCircle, Save, CheckSquare, Square, DollarSign, TrendingUp, Wallet, History
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -317,9 +317,9 @@ export default function App() {
 
             {(userData.isAdmin || userData.isMaster) && (
                 <div className="bg-white p-4 rounded-3xl shadow-md border border-indigo-50 flex flex-wrap gap-2 justify-center">
-                    <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'closed' ? 'bg-red-600 text-white' : 'text-red-600'}`}>FECHAR</button>
-                    <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'monthly' ? 'bg-amber-500 text-white' : 'text-amber-500'}`}>MENSAL</button>
-                    <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'open' ? 'bg-green-600 text-white' : 'text-green-600'}`}>AVULSO</button>
+                    <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'closed' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-200'}`}>FECHAR</button>
+                    <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'monthly' ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-500 border-amber-200'}`}>MENSAL</button>
+                    <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'open' ? 'bg-green-600 text-white border-green-600' : 'text-green-600 border-green-200'}`}>AVULSO</button>
                 </div>
             )}
 
