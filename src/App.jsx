@@ -24,7 +24,9 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = 'voley-manager-v4'; 
+
+// AJUSTE CRUCIAL: Voltamos para v3 conforme visto no seu print do Firestore
+const appId = 'voley-manager-v3'; 
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -58,10 +60,11 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Escuta em tempo real
+  // Escuta em tempo real do Banco de Dados
   useEffect(() => {
     if (!user || !db) return;
     
+    // Agora o app vai ler da coleção correta (v3)
     const unsub19 = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'games', '19h'), (d) => {
       setGameData19(d.exists() ? d.data() : { players: [], status: 'closed' });
     });
@@ -87,7 +90,7 @@ export default function App() {
         setView('login');
       }
     } catch (e) {
-      console.error(e);
+      console.error("Erro ao buscar dados:", e);
     }
     setLoading(false);
   };
@@ -97,7 +100,7 @@ export default function App() {
     setTimeout(() => setMessage(null), 3000);
   };
 
-  // --- LOGICA DE ACESSO ---
+  // --- LÓGICA DE ACESSO ---
   const getAccess = (court) => {
     const game = court === '19h' ? gameData19 : gameData21;
     const status = game?.status || 'closed';
@@ -168,6 +171,8 @@ export default function App() {
     e.preventDefault();
     const uIn = e.target.username.value;
     const pIn = e.target.password.value;
+    
+    // Comparação exata com os dados do Firestore
     const found = allUsers.find(u => u.username === uIn && u.password === pIn);
     
     if (found) {
@@ -175,7 +180,7 @@ export default function App() {
       setView('dashboard');
       showMessage("Login realizado!", "success");
     } else {
-      showMessage("Usuário ou senha incorretos.", "error");
+      showMessage("Utilizador ou senha incorretos.", "error");
     }
   };
 
@@ -287,9 +292,9 @@ export default function App() {
             {/* Controles Administrativos */}
             {(userData.isAdmin || userData.isMaster) && (
                 <div className="bg-white p-4 rounded-3xl shadow-md border border-indigo-50 flex flex-wrap gap-2 justify-center">
-                    <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'closed' ? 'bg-red-600 text-white' : 'text-red-600'}`}>FECHAR</button>
-                    <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'monthly' ? 'bg-amber-500 text-white' : 'text-amber-500'}`}>MENSAL</button>
-                    <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'open' ? 'bg-green-600 text-white' : 'text-green-600'}`}>AVULSO</button>
+                    <button onClick={() => setGameStatus(activeTab, 'closed')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'closed' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-200'}`}>FECHAR</button>
+                    <button onClick={() => setGameStatus(activeTab, 'monthly')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'monthly' ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-500 border-amber-200'}`}>MENSAL</button>
+                    <button onClick={() => setGameStatus(activeTab, 'open')} className={`px-4 py-2 rounded-xl text-[9px] font-black border uppercase ${access.status === 'open' ? 'bg-green-600 text-white border-green-600' : 'text-green-600 border-green-200'}`}>AVULSO</button>
                 </div>
             )}
 
@@ -305,7 +310,7 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button 
                         onClick={() => handleJoinGame(activeTab)} 
-                        className={`py-4 rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 ${access.canJoin ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-300'}`}
+                        className={`py-4 rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 ${access.canJoin ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-100 text-slate-300'}`}
                     >
                         <PlusCircle size={18}/> MEU NOME
                     </button>
@@ -314,7 +319,7 @@ export default function App() {
                         <button 
                             key={member.id} 
                             onClick={() => handleJoinGame(activeTab, member)} 
-                            className={`py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 ${access.canJoin ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-50 text-slate-200'}`}
+                            className={`py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all active:scale-95 ${access.canJoin ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-50 text-slate-200'}`}
                         >
                             <Users2 size={18}/> + {member.username}
                         </button>
